@@ -1,8 +1,10 @@
 " File:        pytest.vim
 " Description: Runs the current test Class/Method/Function/File with
-"              py.test 
-" Maintainer:  Alfredo Deza <alfredodeza AT gmail.com>
+"              manage.py test
+" Maintainer:  Evgeny V. Generalov <e.generalov AT gmail.com>
 " License:     MIT
+"
+" Based on pytest.vim by Alfredo Deza <alfredodeza AT gmail.com>
 "============================================================================
 
 
@@ -16,6 +18,7 @@ let g:pytest_session_errors    = {}
 let g:pytest_session_error     = 0
 let g:pytest_last_session      = ""
 let g:pytest_looponfail        = 0
+let g:pytest_managepy          = "manage.py"
 
 
 function! s:PytestSyntax() abort
@@ -297,13 +300,16 @@ endfunction
 
 
 function! s:CurrentPath()
-    let cwd = expand("%:p")
-    return cwd
+    " return the appname of the django application for the current test
+    " this should match to 'appname/tests.py' and 'appname/tests/module.py'
+    let appname = matchlist(expand('%:p'), '\v/([^/]+)/tests')[1]
+    return appname
 endfunction
 
 
 function! s:RunInSplitWindow(path)
-    let cmd = "py.test --tb=short " . a:path
+    let cmd = s:PytestCmd(a:path)
+    echo a:path
     if exists("g:ConqueTerm_Loaded") 
         call conque_term#open(cmd, ['split', 'resize 20'], 0)
     else
@@ -475,16 +481,22 @@ function! s:ClearAll()
     endfor
 endfunction
 
+function! s:PytestCmd(path)
+    let cmd = g:pytest_managepy . " test " . a:path
+    return cmd
+endfunction
+
 
 function! s:RunPyTest(path)
     let g:pytest_last_session = ""
-    let cmd = "py.test --tb=short " . a:path
+    let cmd = s:PytestCmd(a:path)
     let out = system(cmd)
-    
+
     " Pointers and default variables
     let g:pytest_session_errors = {}
     let g:pytest_session_error  = 0
     let g:pytest_last_session   = out
+    let ok = 0
 
     for w in split(out, '\n')
         if w =~ '\v\s+(FAILURES)\s+'
@@ -495,15 +507,23 @@ function! s:RunPyTest(path)
             return
         elseif w =~ '\v^(.*)\s*ERROR:\s+'
             call s:RedBar()
-            echo "py.test had an Error, see :Pytest session for more information" 
+            echo cmd . " had an Error, see :Pytest session for more information"
             return
         elseif w =~ '\v^(.*)\s*INTERNALERROR'
             call s:RedBar()
-            echo "py.test had an InternalError, see :Pytest session for more information" 
+            echo cmd . " had an InternalError, see :Pytest session for more information"
             return
+        elseif w =~ '\v^OK'
+            let ok = 1
         endif
     endfor
-    call s:GreenBar()
+    if ok == 1
+        call s:GreenBar()
+    else
+        call s:RedBar()
+        echo split(out, '\n')[0]
+        echo cmd . " had an Error, see :Pytest session for more information"
+    endif
 
     " If looponfail is set we no longer need it
     " So clear the autocomand and set the global var to 0
@@ -665,8 +685,8 @@ function! s:ThisMethod(verbose, ...)
         return
     endif
 
-    let path =  abspath . "::" . c_name . "::" . m_name 
-    let message = "py.test ==> Running test for method " . m_name 
+    let path =  abspath . "." . c_name . "." . m_name
+    let message = "py.test ==> Running test for method " . m_name
     call s:Echo(message, 1)
 
     if ((a:1 == '--pdb') || (a:1 == '-s'))
@@ -715,10 +735,10 @@ function! s:ThisClass(verbose, ...)
         call s:Echo("Unable to find a matching class for testing")
         return
     endif
-    let message  = "py.test ==> Running tests for class " . c_name 
+    let message  = "py.test ==> Running tests for class " . c_name
     call s:Echo(message, 1)
 
-    let path = abspath . "::" . c_name
+    let path = abspath . "." . c_name
 
     if ((a:1 == '--pdb') || (a:1 == '-s'))
         call s:Pdb(path, a:1)
